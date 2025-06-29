@@ -28,13 +28,13 @@ def text_split(data, chunk_size=500, chunk_overlap=20):
     return text_chunks
 
 def load_hf_embeddings():
-    os.environ['HF_HOME'] = os.path.join(ASSETS_FOLDER, '.hf_cache')
-    return HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
+    os.environ['HF_HOME'] = ASSETS_FOLDER / '.hf_cache'
+    return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 
 def parse_results(result):
     return result['messages'], result['messages'][-1].content
 
-def initialize_llm(user_name, host, k=2, max_tokens=512, temp=0.1):
+def initialize_llm(user_name, host, k=K, max_tokens=MAX_TOKENS, temp=T):
     # Load embeddings
     print("Loading embeddings...")
     embeddings = load_hf_embeddings()
@@ -48,7 +48,7 @@ def initialize_llm(user_name, host, k=2, max_tokens=512, temp=0.1):
     
     # Load LLM
     print("Loading LLM...")
-    llm = ChatOllama(model="llama3.1", temperature=temp, max_tokens=max_tokens)
+    llm = ChatOllama(model=OLLAMA_MODEL, temperature=temp, max_tokens=max_tokens)
     
     # Load DB
     db = SQLDatabase.from_uri("sqlite:///" + DB_PATH)
@@ -78,21 +78,20 @@ def search_doctor_by_specialization(specialization: str) -> list[str]:
     :param specialization: The name of the specialization area, e.g. Cardiology.
     :return: A list of doctors with the given specialization area.
     """
-    
-    # Open connection to DB
-    db = sqlite3.connect(DB_PATH)
-    cur = db.cursor()
-    
-    # Prepare query to retrieve doctor information
-    query = """
-                SELECT name
-                FROM doctors
-                WHERE LOWER(specialization) LIKE LOWER(?)
-            """
-    
-    # Execute query and fetch result
-    result = cur.execute(query, ('%' + specialization + '%',))
-    return list((r[0] for r in result.fetchall()))
+
+    with sqlite3.connect(DB_PATH) as _conn:
+        cur = _conn.cursor()
+        
+        # Prepare query to retrieve doctor information
+        query = """
+                    SELECT name
+                    FROM doctors
+                    WHERE LOWER(specialization) LIKE LOWER(?)
+                """
+        
+        # Execute query and fetch result
+        result = cur.execute(query, ('%' + specialization + '%',))
+        return list((r[0] for r in result.fetchall()))
 
 def search_available_doctor_appointments(doctor: str) -> list[dict]:
     """
@@ -101,21 +100,20 @@ def search_available_doctor_appointments(doctor: str) -> list[dict]:
     :param doctor: The name of the doctor.
     :return: A list of time slots for appointments with the corresponding doctor and reservation link.
     """
-    
-    # Open connection to DB
-    db = sqlite3.connect(DB_PATH)
-    cur = db.cursor()
-    
-    # Prepare query to retrieve time slot information
-    query = """
-                SELECT id, time_slot, doctor
-                FROM appointments
-                WHERE patient is null and LOWER(doctor) LIKE LOWER(?)
-            """
-    
-    # Execute query and fetch result
-    result = cur.execute(query, ('%' + doctor + '%',))
-    return list(({'time_slot': r[1], 'doctor': r[2], 'reservation_link': '<a href="res?id={}" target="_blank"> link </a>'.format(r[0])} for r in result.fetchall()))
+
+    with sqlite3.connect(DB_PATH) as _conn:
+        cur = _conn.cursor()
+        
+        # Prepare query to retrieve time slot information
+        query = """
+                    SELECT id, time_slot, doctor
+                    FROM appointments
+                    WHERE patient is null and LOWER(doctor) LIKE LOWER(?)
+                """
+        
+        # Execute query and fetch result
+        result = cur.execute(query, ('%' + doctor + '%',))
+        return list(({'time_slot': r[1], 'doctor': r[2], 'reservation_link': '<a href="res?id={}" target="_blank"> link </a>'.format(r[0])} for r in result.fetchall()))
 
 def search_patient_appointments(patient: str, doctor: str = None) -> list[dict]:
     """
@@ -130,32 +128,31 @@ def search_patient_appointments(patient: str, doctor: str = None) -> list[dict]:
     # Check that user is authorized to access patient information
     if patient.lower() != USER_NAME.lower():
         raise ToolException("Current user is {}. This user is not allowed to access patient {}'s information. This information is confidential and cannot be disclosed. Answer the user's question by notifying this issue.".format(USER_NAME, patient))
-    
-    # Open connection to DB
-    db = sqlite3.connect(DB_PATH)
-    cur = db.cursor()
-    
-    if doctor is not None and doctor != '':
-        # Prepare query to retrieve time slot information
-        query = """
-                    SELECT id, time_slot, doctor
-                    FROM appointments
-                    WHERE LOWER(patient) LIKE LOWER(?) and LOWER(doctor) LIKE LOWER(?)
-                """
-    
-        # Execute query and fetch result
-        result = cur.execute(query, ('%' + patient + '%', '%' + doctor + '%',))
-    else:
-        # Prepare query to retrieve time slot information
-        query = """
-                    SELECT id, time_slot, doctor
-                    FROM appointments
-                    WHERE LOWER(patient) LIKE LOWER(?)
-                """
-        # Execute query and fetch result
-        result = cur.execute(query, ('%' + patient + '%',))
-    
-    return list(({'time_slot': r[1],'doctor': r[2],  'reservation_link': '<a href="res?id={}" target="_blank"> link </a>'.format(r[0])} for r in result.fetchall()))
+
+    with sqlite3.connect(DB_PATH) as _conn:
+        cur = _conn.cursor()
+        
+        if doctor is not None and doctor != '':
+            # Prepare query to retrieve time slot information
+            query = """
+                        SELECT id, time_slot, doctor
+                        FROM appointments
+                        WHERE LOWER(patient) LIKE LOWER(?) and LOWER(doctor) LIKE LOWER(?)
+                    """
+        
+            # Execute query and fetch result
+            result = cur.execute(query, ('%' + patient + '%', '%' + doctor + '%',))
+        else:
+            # Prepare query to retrieve time slot information
+            query = """
+                        SELECT id, time_slot, doctor
+                        FROM appointments
+                        WHERE LOWER(patient) LIKE LOWER(?)
+                    """
+            # Execute query and fetch result
+            result = cur.execute(query, ('%' + patient + '%',))
+        
+        return list(({'time_slot': r[1],'doctor': r[2],  'reservation_link': '<a href="res?id={}" target="_blank"> link </a>'.format(r[0])} for r in result.fetchall()))
 
 def register_emergency(patient: str, question: str, code: str) -> str:
     """
@@ -169,25 +166,24 @@ def register_emergency(patient: str, question: str, code: str) -> str:
     
     # Get current datetime in string format
     t = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-    
-    # Open connection to DB
-    db = sqlite3.connect(DB_PATH)
-    cur = db.cursor()
-    
-    # Prepare and execute query to create emergency table if it does not exist already.
-    query = """
-                CREATE TABLE IF NOT EXISTS emergencies(user, patient, time, question, code)
-            """
-    cur.execute(query)
-    
-    # Prepare query to register emergency
-    query = """
-                INSERT INTO emergencies VALUES (?, ?, ?, ?, ?)
-            """
-    
-    # Execute query and fetch result
-    cur.execute(query, (USER_NAME, patient, t, question, code))
-    db.commit()
+
+    with sqlite3.connect(DB_PATH) as _conn:
+        cur = _conn.cursor()
+        
+        # Prepare and execute query to create emergency table if it does not exist already.
+        query = """
+                    CREATE TABLE IF NOT EXISTS emergencies(user, patient, time, question, code)
+                """
+        cur.execute(query)
+        
+        # Prepare query to register emergency
+        query = """
+                    INSERT INTO emergencies VALUES (?, ?, ?, ?, ?)
+                """
+        
+        # Execute query and fetch result
+        cur.execute(query, (USER_NAME, patient, t, question, code))
+        _conn.commit()
     
     return "The emergency has been registered. Do not answer the user's question by returning the emergency color-code, because that information is reserved for doctors; instead, return general health tips related to the condition described by the user, reassure the user that the emergency can be handled by medical intervention, and advise consulting a healthcare professional."
 

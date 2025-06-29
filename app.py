@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 import datetime
 import flask
 from flask import Flask, render_template, request, jsonify, send_from_directory
@@ -50,49 +50,48 @@ def chat():
     return response
 
 def append_to_history(text, source):
-    file_path = os.path.join(CHAT_HISTORY_FOLDER, USER_NAME.lower() + '.txt')
+    file_path = Path(CHAT_HISTORY_FOLDER) / USER_CHAT_FILE
     t = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with open(file_path, 'a') as f:
         f.write("[{}] {}: {}\n\n".format(t, source, text))
     
 
 def retrieve_appointment(slot_id):
     # Open connection to DB
-    db = sqlite3.connect('assets/database/medassist.db')
-    cur = db.cursor()
-    
-    # Prepare query to retrieve time slot information
-    query = """
-            SELECT doctor, time_slot, patient
-            FROM appointments
-            WHERE id = ?
-        """
-    
-    # Execute query and fetch result
-    result = cur.execute(query, (slot_id,))
-    return result.fetchone()
+    with sqlite3.connect(DB_PATH) as _conn:
+        cur = _conn.cursor()
+
+        # Prepare query to retrieve time slot information
+        query = """
+                SELECT doctor, time_slot, patient
+                FROM appointments
+                WHERE id = ?
+            """
+        
+        # Execute query and fetch result
+        result = cur.execute(query, (slot_id,))
+        return result.fetchone()
 
 
 def set_appointment(patient, slot_id):
     # Open connection to DB
-    db = sqlite3.connect('assets/database/medassist.db')
-    cur = db.cursor()
-    
-    # Prepare query to retrieve time slot information
-    query = """
-            UPDATE appointments
-            SET patient = ?
-            WHERE id = ?
-        """
-    
-    # Execute query
-    cur.execute(query, (patient, slot_id,))
-    db.commit()
+    with sqlite3.connect(DB_PATH) as _conn:
+        cur = _conn.cursor()
+        
+        # Prepare query to retrieve time slot information
+        query = """
+                UPDATE appointments
+                SET patient = ?
+                WHERE id = ?
+            """
+        
+        # Execute query
+        cur.execute(query, (patient, slot_id,))
+        _conn.commit()
 
 @app.route("/history", methods=["GET"])
 def history():
-    return send_from_directory(CHAT_HISTORY_FOLDER, USER_NAME.lower() + '.txt')
+    return send_from_directory(CHAT_HISTORY_FOLDER, USER_CHAT_FILE)
 
 @app.route("/res", methods=["GET"])
 def reserve():
